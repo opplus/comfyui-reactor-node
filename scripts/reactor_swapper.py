@@ -432,58 +432,30 @@ def swap_face_many(
         if source_faces is not None:
 
             target_faces = []
-            for i, target_img in enumerate(target_imgs):
-                if state.interrupted or model_management.processing_interrupted():
-                    logger.status("Interrupted by User")
-                    break
-                
-                target_image_md5hash = get_image_md5hash(target_img)
-                hash_key= f"{i}#{target_image_md5hash}"
-                # if len(TARGET_IMAGE_LIST_HASH) == 0:
-                #     TARGET_IMAGE_LIST_HASH = [target_image_md5hash]
-                #     target_image_same = False
-                # elif len(TARGET_IMAGE_LIST_HASH) == i:
-                #     TARGET_IMAGE_LIST_HASH.append(target_image_md5hash)
-                #     target_image_same = False
-                # else:
-                #     target_image_same = True if TARGET_IMAGE_LIST_HASH[i] == target_image_md5hash else False
-                #     if not target_image_same:
-                #         TARGET_IMAGE_LIST_HASH[i] = target_image_md5hash
-                cache_target_face = None
-                if hash_key in TARGET_FACE_CACHE:
-                    cache_target_face = TARGET_FACE_CACHE[hash_key] 
-                target_image_same = True if cache_target_face is not None else False
-                logger.info("(Image %s) Target Image MD5 Hash = %s", i, target_image_md5hash)
-                logger.info("(Image %s) Target Image the Same? %s", i, target_image_same)
-
-                # if len(TARGET_FACES_LIST) == 0:
-                #     logger.status(f"Analyzing Target Image {i}...")
-                #     target_face = analyze_faces(target_img)
-                #     TARGET_FACES_LIST = [target_face]
-                # elif len(TARGET_FACES_LIST) == i and not target_image_same:
-                #     logger.status(f"Analyzing Target Image {i}...")
-                #     target_face = analyze_faces(target_img)
-                #     TARGET_FACES_LIST.append(target_face)
-                # elif len(TARGET_FACES_LIST) != i and not target_image_same:
-                #     logger.status(f"Analyzing Target Image {i}...")
-                #     target_face = analyze_faces(target_img)
-                #     TARGET_FACES_LIST[i] = target_face
-                # elif target_image_same:
-                #     logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
-                #     target_face = TARGET_FACES_LIST[i]
-
-                if target_image_same==True:
-                    logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
-                    target_face = cache_target_face
-                else:
-                    logger.status(f"Analyzing Target Image {i}...")
-                    target_face = analyze_faces(target_img)
-                    TARGET_FACE_CACHE[hash_key]=target_face
-
-                # logger.status(f"Analyzing Target Image {i}...")
-                # target_face = analyze_faces(target_img)
-                if target_face is not None:
-                    target_faces.append(target_face)
+            if parallels_num is None or parallels_num <= 1:
+                for i, target_img in enumerate(target_imgs):
+                    if state.interrupted or model_management.processing_interrupted():
+                        logger.status("Interrupted by User")
+                        break
+                    target_face=_do_analysis_face(i,target_img,TARGET_FACE_CACHE)
+                    if target_face is not None:
+                        target_faces.append(target_face)
+            else:
+                import concurrent.futures
+                exec_result = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=parallels_num) as executor:
+                    futures = [
+                        executor.submit(_do_analysis_face,
+                                        i, target_img, TARGET_FACE_CACHE)
+                        for i, target_img in enumerate(target_imgs)
+                    ]
+                    # 阻塞直到所有的future完成
+                    for future in concurrent.futures.as_completed(futures):
+                        exec_result.append(future.result())
+                # 结果排序
+                sorted_results = [x[1] for x in sorted(exec_result, key=lambda x: x[0])]
+                # 移除为None的结果
+                target_faces = [x for x in sorted_results if x is not None]
 
             # No use in trying to swap faces if no faces are found, enhancement
             if len(target_faces) == 0:
@@ -563,6 +535,26 @@ def swap_face_many(
         else:
             logger.status("No source face(s) found")
     return result_images
+
+
+def _do_analysis_face(i,target_img,TARGET_FACE_CACHE):
+    target_image_md5hash = get_image_md5hash(target_img)
+    hash_key = f"{i}#{target_image_md5hash}"
+    cache_target_face = None
+    if hash_key in TARGET_FACE_CACHE:
+        cache_target_face = TARGET_FACE_CACHE[hash_key]
+    target_image_same = True if cache_target_face is not None else False
+    logger.info("(Image %s) Target Image MD5 Hash = %s", i, target_image_md5hash)
+    logger.info("(Image %s) Target Image the Same? %s", i, target_image_same)
+    if target_image_same == True:
+        logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
+        target_face = cache_target_face
+    else:
+        logger.status(f"Analyzing Target Image {i}...")
+        target_face = analyze_faces(target_img)
+        TARGET_FACE_CACHE[hash_key] = target_face
+    return target_face
+
 
 def _do_swap_face(i,target_img,target_face,face_num,gender_target,faces_order,source_face,face_restore_model,face_restore_visibility,codeformer_weight,interpolation,face_boost_enabled,face_swapper):
     target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_num,
