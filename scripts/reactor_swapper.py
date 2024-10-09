@@ -448,8 +448,10 @@ def swap_face_many(
                 #     target_image_same = True if TARGET_IMAGE_LIST_HASH[i] == target_image_md5hash else False
                 #     if not target_image_same:
                 #         TARGET_IMAGE_LIST_HASH[i] = target_image_md5hash
-
-                target_image_same,cache_target_face = (True, TARGET_FACE_CACHE[hash_key]) if hash_key in TARGET_FACE_CACHE and TARGET_FACE_CACHE[hash_key] is not None else False,None
+                cache_target_face = None
+                if hash_key in TARGET_FACE_CACHE:
+                    cache_target_face = TARGET_FACE_CACHE[hash_key] 
+                target_image_same = True if cache_target_face is not None else False
                 logger.info("(Image %s) Target Image MD5 Hash = %s", i, target_image_md5hash)
                 logger.info("(Image %s) Target Image the Same? %s", i, target_image_same)
 
@@ -469,7 +471,7 @@ def swap_face_many(
                 #     logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
                 #     target_face = TARGET_FACES_LIST[i]
 
-                if target_image_same:
+                if target_image_same==True:
                     logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
                     target_face = cache_target_face
                 else:
