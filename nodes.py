@@ -144,6 +144,7 @@ class reactor:
                 "source_image": ("IMAGE",),
                 "face_model": ("FACE_MODEL",),
                 "face_boost": ("FACE_BOOST",),
+                "parallels_num": ("INT", {"default": 1, "min": 1, "max": 100}),
             },
             "hidden": {"faces_order": "FACES_ORDER"},
         }
