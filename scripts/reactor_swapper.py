@@ -437,7 +437,7 @@ def swap_face_many(
                     if state.interrupted or model_management.processing_interrupted():
                         logger.status("Interrupted by User")
                         break
-                    target_face=_do_analysis_face(i,target_img,TARGET_FACE_CACHE)
+                    i,target_face=_do_analysis_face(i,target_img,TARGET_FACE_CACHE)
                     if target_face is not None:
                         target_faces.append(target_face)
             else:
@@ -553,7 +553,7 @@ def _do_analysis_face(i,target_img,TARGET_FACE_CACHE):
         logger.status(f"Analyzing Target Image {i}...")
         target_face = analyze_faces(target_img)
         TARGET_FACE_CACHE[hash_key] = target_face
-    return target_face
+    return i,target_face
 
 
 def _do_swap_face(i,target_img,target_face,face_num,gender_target,faces_order,source_face,face_restore_model,face_restore_visibility,codeformer_weight,interpolation,face_boost_enabled,face_swapper):
