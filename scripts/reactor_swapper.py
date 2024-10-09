@@ -3,11 +3,11 @@ import shutil
 from typing import List, Union
 
 import cv2
+import insightface
 import numpy as np
 from PIL import Image
-
-import insightface
 from insightface.app.common import Face
+
 try:
     import torch.cuda as cuda
 except:
@@ -68,6 +68,7 @@ TARGET_FACES = None
 TARGET_IMAGE_HASH = None
 TARGET_FACES_LIST = []
 TARGET_IMAGE_LIST_HASH = []
+TARGET_FACE_CACHE = {}
 
 
 def get_current_faces_model():
@@ -372,7 +373,7 @@ def swap_face_many(
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
 ):
-    global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH
+    global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH,TARGET_FACE_CACHE
     result_images = target_imgs
 
     if model is not None:
@@ -436,36 +437,45 @@ def swap_face_many(
                     break
                 
                 target_image_md5hash = get_image_md5hash(target_img)
-                if len(TARGET_IMAGE_LIST_HASH) == 0:
-                    TARGET_IMAGE_LIST_HASH = [target_image_md5hash]
-                    target_image_same = False
-                elif len(TARGET_IMAGE_LIST_HASH) == i:
-                    TARGET_IMAGE_LIST_HASH.append(target_image_md5hash)
-                    target_image_same = False
-                else:
-                    target_image_same = True if TARGET_IMAGE_LIST_HASH[i] == target_image_md5hash else False
-                    if not target_image_same:
-                        TARGET_IMAGE_LIST_HASH[i] = target_image_md5hash
-                
-                logger.info("(Image %s) Target Image MD5 Hash = %s", i, TARGET_IMAGE_LIST_HASH[i])
+                hash_key= f"{i}#{target_image_md5hash}"
+                # if len(TARGET_IMAGE_LIST_HASH) == 0:
+                #     TARGET_IMAGE_LIST_HASH = [target_image_md5hash]
+                #     target_image_same = False
+                # elif len(TARGET_IMAGE_LIST_HASH) == i:
+                #     TARGET_IMAGE_LIST_HASH.append(target_image_md5hash)
+                #     target_image_same = False
+                # else:
+                #     target_image_same = True if TARGET_IMAGE_LIST_HASH[i] == target_image_md5hash else False
+                #     if not target_image_same:
+                #         TARGET_IMAGE_LIST_HASH[i] = target_image_md5hash
+
+                target_image_same,cache_target_face = (True, TARGET_FACE_CACHE[hash_key]) if hash_key in TARGET_FACE_CACHE and TARGET_FACE_CACHE[hash_key] is not None else False,None
+                logger.info("(Image %s) Target Image MD5 Hash = %s", i, target_image_md5hash)
                 logger.info("(Image %s) Target Image the Same? %s", i, target_image_same)
 
-                if len(TARGET_FACES_LIST) == 0:
-                    logger.status(f"Analyzing Target Image {i}...")
-                    target_face = analyze_faces(target_img)
-                    TARGET_FACES_LIST = [target_face]
-                elif len(TARGET_FACES_LIST) == i and not target_image_same:
-                    logger.status(f"Analyzing Target Image {i}...")
-                    target_face = analyze_faces(target_img)
-                    TARGET_FACES_LIST.append(target_face)
-                elif len(TARGET_FACES_LIST) != i and not target_image_same:
-                    logger.status(f"Analyzing Target Image {i}...")
-                    target_face = analyze_faces(target_img)
-                    TARGET_FACES_LIST[i] = target_face
-                elif target_image_same:
+                # if len(TARGET_FACES_LIST) == 0:
+                #     logger.status(f"Analyzing Target Image {i}...")
+                #     target_face = analyze_faces(target_img)
+                #     TARGET_FACES_LIST = [target_face]
+                # elif len(TARGET_FACES_LIST) == i and not target_image_same:
+                #     logger.status(f"Analyzing Target Image {i}...")
+                #     target_face = analyze_faces(target_img)
+                #     TARGET_FACES_LIST.append(target_face)
+                # elif len(TARGET_FACES_LIST) != i and not target_image_same:
+                #     logger.status(f"Analyzing Target Image {i}...")
+                #     target_face = analyze_faces(target_img)
+                #     TARGET_FACES_LIST[i] = target_face
+                # elif target_image_same:
+                #     logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
+                #     target_face = TARGET_FACES_LIST[i]
+
+                if target_image_same:
                     logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
-                    target_face = TARGET_FACES_LIST[i]
-                
+                    target_face = cache_target_face
+                else:
+                    logger.status(f"Analyzing Target Image {i}...")
+                    target_face = analyze_faces(target_img)
+                    TARGET_FACE_CACHE[hash_key]=target_face
 
                 # logger.status(f"Analyzing Target Image {i}...")
                 # target_face = analyze_faces(target_img)
