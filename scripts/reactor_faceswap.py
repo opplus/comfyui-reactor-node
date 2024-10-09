@@ -51,6 +51,7 @@ class FaceSwapScript(scripts.Script):
         face_restore_visibility,
         codeformer_weight,
         interpolation,
+        parallels_num=1
     ):
         self.enable = enable
         if self.enable:
@@ -150,6 +151,7 @@ class FaceSwapScript(scripts.Script):
                         face_restore_visibility=self.face_restore_visibility,
                         codeformer_weight=self.codeformer_weight,
                         interpolation=self.interpolation,
+                        parallels_num=parallels_num,
                     )
                     p.init_images = result
 

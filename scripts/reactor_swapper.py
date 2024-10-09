@@ -372,6 +372,7 @@ def swap_face_many(
     face_restore_visibility: int = 1,
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
+    parallels_num=1,
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH,TARGET_FACE_CACHE
     result_images = target_imgs
@@ -518,27 +519,36 @@ def swap_face_many(
 
                     if source_face is not None and src_wrong_gender == 0:
                         # Reading results to make current face swap on a previous face result
-                        for i, (target_img, target_face) in enumerate(zip(results, target_faces)):
-                            target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_num, gender_target=gender_target, order=faces_order[0])
-                            if target_face_single is not None and wrong_gender == 0:
-                                result = target_img
-                                logger.status(f"Swapping {i}...")
-                                if face_boost_enabled:
-                                    logger.status(f"Face Boost is enabled")
-                                    bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
-                                    bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
-                                    M *= scale
-                                    result = swapper.in_swap(target_img, bgr_fake, M)
+                        if parallels_num is None or parallels_num<=1:
+                            for i, (target_img, target_face) in enumerate(zip(results, target_faces)):
+                                i,result = _do_swap_face(i, target_img, target_face, face_num, gender_target, faces_order,
+                                                       source_face, face_restore_model, face_restore_visibility,
+                                                       codeformer_weight, interpolation, face_boost_enabled,
+                                                       face_swapper)
+                                if result is not None:
+                                    results[i] = result
                                 else:
-                                    # logger.status(f"Swapping as-is")
-                                    result = face_swapper.get(target_img, target_face_single, source_face)
-                                results[i] = result
-                            elif wrong_gender == 1:
-                                wrong_gender = 0
-                                logger.status("Wrong target gender detected")
-                                continue
-                            else:
-                                logger.status(f"No target face found for {face_num}")
+                                    continue
+                        else:
+                            import concurrent.futures
+                            exec_result=[]
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=parallels_num) as executor:
+                                futures = [
+                                    executor.submit(_do_swap_face,
+                                                    i, target_img, target_face, face_num, gender_target, faces_order,
+                                                    source_face, face_restore_model, face_restore_visibility,
+                                                    codeformer_weight, interpolation, face_boost_enabled,
+                                                    face_swapper)
+                                    for i, (target_img, target_face) in enumerate(zip(results, target_faces))
+                                ]
+                                # 阻塞直到所有的future完成
+                                for future in concurrent.futures.as_completed(futures):
+                                    exec_result.append(future.result())
+                            # 结果排序
+                            sorted_results = [x[1] for x in sorted(exec_result, key=lambda x: x[0])]
+                            # 移除为None的结果
+                            results = [x for x in sorted_results if x is not None]
+
                     elif src_wrong_gender == 1:
                         src_wrong_gender = 0
                         logger.status("Wrong source gender detected")
@@ -553,3 +563,27 @@ def swap_face_many(
         else:
             logger.status("No source face(s) found")
     return result_images
+
+def _do_swap_face(i,target_img,target_face,face_num,gender_target,faces_order,source_face,face_restore_model,face_restore_visibility,codeformer_weight,interpolation,face_boost_enabled,face_swapper):
+    target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_num,
+                                                       gender_target=gender_target, order=faces_order[0])
+    if target_face_single is not None and wrong_gender == 0:
+        result = target_img
+        logger.status(f"Swapping {i}...")
+        if face_boost_enabled:
+            logger.status(f"Face Boost is enabled")
+            bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
+            bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility,
+                                                         codeformer_weight, interpolation)
+            M *= scale
+            result = swapper.in_swap(target_img, bgr_fake, M)
+        else:
+            # logger.status(f"Swapping as-is")
+            result = face_swapper.get(target_img, target_face_single, source_face)
+        return i,result
+    elif wrong_gender == 1:
+        wrong_gender = 0
+        logger.status("Wrong target gender detected")
+    else:
+        logger.status(f"No target face found for {face_num}")
+    return i,None
