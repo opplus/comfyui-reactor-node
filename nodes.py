@@ -547,8 +547,6 @@ class BuildFaceModel:
                         if isinstance(face, str):
                             logger.error(f"No faces found in image {i + 1}, skipping")
                             continue
-                        else:
-                            print(f"{int(((i + 1) / n) * 100)}%")
                         faces.append(face)
                         embeddings.append(face.embedding)
                 else:
@@ -567,8 +565,6 @@ class BuildFaceModel:
                         if isinstance(face, str):
                             logger.error(f"No faces found in image {i + 1}, skipping")
                             continue
-                        else:
-                            print(f"{int(((i + 1) / n) * 100)}%")
                         faces.append(face)
                         embeddings.append(face.embedding)
 
@@ -1257,6 +1253,7 @@ def _build_face_model(i, n,image: Image.Image, det_size=(640, 640)):
             print("...........................................................", end=" ")
 
     if face_model is not None and len(face_model) > 0:
+        print(f"{int(((i + 1) / n) * 100)}%")
         return i,face_model[0]
     else:
         no_face_msg = "No face found, please try another image"
