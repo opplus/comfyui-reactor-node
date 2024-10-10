@@ -1236,7 +1236,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
 
 def _build_face_model(i, n,image: Image.Image, det_size=(640, 640)):
-    logger.status(f"Building Face Model {i + 1} of {n}...")
     logging.StreamHandler.terminator = "\n"
     if image is None:
         error_msg = "Please load an Image"
@@ -1253,7 +1252,7 @@ def _build_face_model(i, n,image: Image.Image, det_size=(640, 640)):
             print("...........................................................", end=" ")
 
     if face_model is not None and len(face_model) > 0:
-        print(f"{int(((i + 1) / n) * 100)}%")
+        logger.status(f"Building Face Model {i + 1} of {n}...{int(((i + 1) / n) * 100)}%")
         return i,face_model[0]
     else:
         no_face_msg = "No face found, please try another image"
