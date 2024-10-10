@@ -555,7 +555,7 @@ class BuildFaceModel:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=parallels_num) as executor:
                         futures = [
                             executor.submit(_build_face_model,
-                                            i,image)
+                                            i,n,image)
                             for i, image in enumerate(images_list)
                         ]
                         # 阻塞直到所有的future完成
