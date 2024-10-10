@@ -488,6 +488,7 @@ class BuildFaceModel:
             "optional": {
                 "images": ("IMAGE",),
                 "face_models": ("FACE_MODEL",),
+                "parallels_num": ("INT", {"default": 5, "min": 1, "max": 100}),
             }
         }
 
@@ -521,7 +522,7 @@ class BuildFaceModel:
             # logger.error(no_face_msg)
             return no_face_msg
     
-    def blend_faces(self, save_mode, send_only, face_model_name, compute_method, images=None, face_models=None):
+    def blend_faces(self, save_mode, send_only, face_model_name, compute_method, images=None, face_models=None,parallels_num=5):
         global BLENDED_FACE_MODEL
         blended_face: Face = BLENDED_FACE_MODEL
 
@@ -539,19 +540,40 @@ class BuildFaceModel:
                 images_list: List[Image.Image] = batch_tensor_to_pil(images)
 
                 n = len(images_list)
+                if parallels_num is None or parallels_num <= 1:
+                    for i, image in enumerate(images_list):
+                        logging.StreamHandler.terminator = " "
+                        logger.status(f"Building Face Model {i + 1} of {n}...")
+                        i,face = _build_face_model(i,image)
+                        if isinstance(face, str):
+                            logger.error(f"No faces found in image {i + 1}, skipping")
+                            continue
+                        else:
+                            print(f"{int(((i + 1) / n) * 100)}%")
+                        faces.append(face)
+                        embeddings.append(face.embedding)
+                else:
+                    import concurrent.futures
+                    exec_result = []
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=parallels_num) as executor:
+                        futures = [
+                            executor.submit(_build_face_model,
+                                            i,image)
+                            for i, image in enumerate(images_list)
+                        ]
+                        # 阻塞直到所有的future完成
+                        for future in concurrent.futures.as_completed(futures):
+                            exec_result.append(future.result())
+                    for i,face in exec_result:
+                        if isinstance(face, str):
+                            logger.error(f"No faces found in image {i + 1}, skipping")
+                            continue
+                        else:
+                            print(f"{int(((i + 1) / n) * 100)}%")
+                        faces.append(face)
+                        embeddings.append(face.embedding)
 
-                for i,image in enumerate(images_list):
-                    logging.StreamHandler.terminator = " "
-                    logger.status(f"Building Face Model {i+1} of {n}...")
-                    face = self.build_face_model(image)
-                    if isinstance(face, str):
-                        logger.error(f"No faces found in image {i+1}, skipping")
-                        continue
-                    else:
-                        print(f"{int(((i+1)/n)*100)}%")
-                    faces.append(face)
-                    embeddings.append(face.embedding)
-            
+
             elif face_models is not None:
 
                 n = len(face_models)
@@ -1216,3 +1238,27 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ReActorImageDublicator": "Image Dublicator (List) 🌌 ReActor",
     "ImageRGBA2RGB": "Convert RGBA to RGB 🌌 ReActor",
 }
+
+
+def _build_face_model(i, image: Image.Image, det_size=(640, 640)):
+    logging.StreamHandler.terminator = "\n"
+    if image is None:
+        error_msg = "Please load an Image"
+        logger.error(error_msg)
+        return i,error_msg
+    image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    face_model = analyze_faces(image, det_size)
+
+    if len(face_model) == 0:
+        print("")
+        det_size_half = half_det_size(det_size)
+        face_model = analyze_faces(image, det_size_half)
+        if face_model is not None and len(face_model) > 0:
+            print("...........................................................", end=" ")
+
+    if face_model is not None and len(face_model) > 0:
+        return i,face_model[0]
+    else:
+        no_face_msg = "No face found, please try another image"
+        # logger.error(no_face_msg)
+        return i,no_face_msg
