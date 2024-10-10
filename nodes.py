@@ -543,8 +543,7 @@ class BuildFaceModel:
                 if parallels_num is None or parallels_num <= 1:
                     for i, image in enumerate(images_list):
                         logging.StreamHandler.terminator = " "
-                        logger.status(f"Building Face Model {i + 1} of {n}...")
-                        i,face = _build_face_model(i,image)
+                        i,face = _build_face_model(i,n,image)
                         if isinstance(face, str):
                             logger.error(f"No faces found in image {i + 1}, skipping")
                             continue
@@ -1240,7 +1239,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 }
 
 
-def _build_face_model(i, image: Image.Image, det_size=(640, 640)):
+def _build_face_model(i, n,image: Image.Image, det_size=(640, 640)):
+    logger.status(f"Building Face Model {i + 1} of {n}...")
     logging.StreamHandler.terminator = "\n"
     if image is None:
         error_msg = "Please load an Image"
