@@ -31,10 +31,13 @@ np.warnings.filterwarnings('ignore')
 
 if cuda is not None:
     if cuda.is_available():
+        logger.status("Face Swapper Use Cuda")
         providers = ["CUDAExecutionProvider"]
     else:
+        logger.status("Face Swapper Cuda Not Available")
         providers = ["CPUExecutionProvider"]
 else:
+    logger.status("Face Swapper Cuda Is None")
     providers = ["CPUExecutionProvider"]
 
 models_path_old = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
