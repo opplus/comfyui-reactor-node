@@ -1,5 +1,6 @@
 import os, glob, sys
 import logging
+import time
 
 import torch
 import torch.nn.functional as torchfn
@@ -348,6 +349,7 @@ class reactor:
         else:
             source = None
         p = StableDiffusionProcessingImg2Img(pil_images)
+        t0=time.time()
         script.process(
             p=p,
             img=source,
@@ -369,8 +371,11 @@ class reactor:
             interpolation=self.interpolation,
             parallels_num=parallels_num,
         )
+        t1 = time.time()
+        logger.status(f" script.process success cost: {t1-t0:.2f} seconds")
         result = batched_pil_to_tensor(p.init_images)
-
+        t2 = time.time()
+        logger.status(f" batched_pil_to_tensor success cost: {t2-t1:.2f} seconds")
         if face_model is None:
             current_face_model = get_current_faces_model()
             face_model_to_provide = current_face_model[0] if (current_face_model is not None and len(current_face_model) > 0) else face_model

@@ -530,9 +530,9 @@ def swap_face_many(
                         continue
                     else:
                         logger.status(f"No source face found for face number {source_face_idx}.")
-
+                logger.status("swap finish to convert")
                 result_images = [Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB)) for result in results]
-
+                logger.status("convert finish")
             else:
                 logger.status("No source face(s) in the provided Index")
         else:
