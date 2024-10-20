@@ -94,6 +94,7 @@ def getFaceSwapModel(model_path: str):
     global CURRENT_FS_MODEL_PATH
     if CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
         CURRENT_FS_MODEL_PATH = model_path
+        logger.status(f"getFaceSwapModel {model_path} providers {providers}")
         FS_MODEL = insightface.model_zoo.get_model(model_path, providers=providers)
 
     return FS_MODEL

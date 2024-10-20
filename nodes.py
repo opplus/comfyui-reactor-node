@@ -373,7 +373,7 @@ class reactor:
         )
         t1 = time.time()
         logger.status(f" script.process success cost: {t1-t0:.2f} seconds")
-        result = batched_pil_to_tensor(p.init_images)
+        result = batched_pil_to_tensor(p.init_images,parallels_num_pil=parallels_num)
         t2 = time.time()
         logger.status(f" batched_pil_to_tensor success cost: {t2-t1:.2f} seconds")
         if face_model is None:
