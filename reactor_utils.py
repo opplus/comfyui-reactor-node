@@ -38,23 +38,29 @@ def pil_to_tensor(image):
         image = image.unsqueeze(-1)
     return image
 
-from torchvision.transforms import ToTensor
-def pil_to_tensor_gpu(image, device):
-    tensor = ToTensor()(image)
-    return tensor.to(device)
 def batched_pil_to_tensor(images,parallels_num_pil=1):
-    # Takes a list of PIL images and returns a tensor of shape [batch_size, height, width, channels]
-    if torch.cuda.is_available():
-        print(f"Using device GPU")
-        device_id = torch.cuda.current_device()
-        device = torch.device(f"cudaf{device_id}" if torch.cuda.is_available() else "cpu")
-        tensors = [pil_to_tensor_gpu(image, device) for image in images]
-        return  torch.stack(tensors, dim=0)
-    else:
-        print(f"Using device CPU")
+    if parallels_num_pil is None or parallels_num_pil <= 1:
+        # Takes a list of PIL images and returns a tensor of shape [batch_size, height, width, channels]
         return torch.cat([pil_to_tensor(image) for image in images], dim=0)
+    else:
+        import concurrent.futures
+        exec_result = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallels_num_pil) as executor:
+            futures = [
+                executor.submit(sequence_pil_to_tensor,
+                                image,i)
+                for i, image in enumerate(images)
+            ]
+            # 阻塞直到所有的future完成
+            for future in concurrent.futures.as_completed(futures):
+                exec_result.append(future.result())
+        # 结果排序
+        sorted_results = [x[0] for x in sorted(exec_result, key=lambda x: x[1])]
+        return torch.cat(sorted_results, dim=0)
 
-
+def sequence_pil_to_tensor(image,i):
+    image = pil_to_tensor(image)
+    return image,i
 
 def img2tensor(imgs, bgr2rgb=True, float32=True):
 
@@ -197,7 +203,7 @@ def get_ort_session():
 
 def set_ort_session(model_path, providers) -> Any:
     global ORT_SESSION
-    onnxruntime.set_default_logger_severity(3)
+    onnxruntime.set_default_logger_severity(2)
     ORT_SESSION = onnxruntime.InferenceSession(model_path, providers=providers)
     return ORT_SESSION
 
