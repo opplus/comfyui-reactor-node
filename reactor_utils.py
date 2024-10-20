@@ -45,14 +45,15 @@ def pil_to_tensor_gpu(image, device):
 def batched_pil_to_tensor(images,parallels_num_pil=1):
     # Takes a list of PIL images and returns a tensor of shape [batch_size, height, width, channels]
     if torch.cuda.is_available():
-        print(f"Using device CPU")
-        return torch.cat([pil_to_tensor(image) for image in images], dim=0)
-    else:
         print(f"Using device GPU")
         device_id = torch.cuda.current_device()
         device = torch.device(f"cudaf{device_id}" if torch.cuda.is_available() else "cpu")
         tensors = [pil_to_tensor_gpu(image, device) for image in images]
         return  torch.stack(tensors, dim=0)
+    else:
+        print(f"Using device CPU")
+        return torch.cat([pil_to_tensor(image) for image in images], dim=0)
+
 
 
 def img2tensor(imgs, bgr2rgb=True, float32=True):
