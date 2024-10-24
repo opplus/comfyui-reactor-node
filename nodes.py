@@ -56,6 +56,7 @@ import scripts.r_archs.codeformer_arch
 import scripts.r_masking.subcore as subcore
 import scripts.r_masking.core as core
 import scripts.r_masking.segs as masking_segs
+from FaceRestoreWorker import FaceRestoreWorker
 
 
 models_dir = folder_paths.models_dir
@@ -146,6 +147,7 @@ class reactor:
                 "face_model": ("FACE_MODEL",),
                 "face_boost": ("FACE_BOOST",),
                 "parallels_num": ("INT", {"default": 1, "min": 1, "max": 100}),
+                "enable_restore_parallels": ("BOOLEAN", {"default": False, "label_off": "OFF", "label_on": "ON"}),
             },
             "hidden": {"faces_order": "FACES_ORDER"},
         }
@@ -172,11 +174,25 @@ class reactor:
             face_restore_visibility,
             codeformer_weight,
             facedetection,
+            enable_parallels=False,
         ):
 
         result = input_image
 
         if face_restore_model != "none" and not model_management.processing_interrupted():
+            if enable_parallels is not None and enable_parallels:
+                # 创建 FaceRestoreWorker 实例
+                worker = FaceRestoreWorker()
+
+                # 调用 restore_face 方法
+                output_image = worker.restore_face(
+                    input_image,
+                    face_restore_model=face_restore_model,
+                    face_restore_visibility=face_restore_visibility,
+                    codeformer_weight=codeformer_weight,
+                    facedetection=facedetection
+                )
+                return output_image
 
             global FACE_SIZE, FACE_HELPER
 
@@ -316,7 +332,7 @@ class reactor:
 
         return result
     
-    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None,parallels_num=1):
+    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None,parallels_num=1,enable_restore_parallels=False):
 
         if face_boost is not None:
             self.face_boost_enabled = face_boost["enabled"]
@@ -383,7 +399,7 @@ class reactor:
             face_model_to_provide = face_model
 
         if self.restore or not self.face_boost_enabled:
-            result = reactor.restore_face(self,result,face_restore_model,face_restore_visibility,codeformer_weight,facedetection)
+            result = reactor.restore_face(self,result,face_restore_model,face_restore_visibility,codeformer_weight,facedetection,enable_parallels=enable_restore_parallels)
 
         return (result,face_model_to_provide)
 
