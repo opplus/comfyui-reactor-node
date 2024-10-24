@@ -34,6 +34,7 @@ class FaceRestoreWorker:
     def __init__(self):
         self.face_helper = None
         self.FACE_SIZE = 512
+        self.stop_event=False
 
 
     def restore_face(
@@ -47,6 +48,7 @@ class FaceRestoreWorker:
     ):
         result = input_image
         t0=time.time()
+        threads = []
         try:
             if face_restore_model != "none" and not model_management.processing_interrupted():
                 faceSize = self._get_face_size(face_restore_model)
@@ -96,23 +98,22 @@ class FaceRestoreWorker:
 
                 ptag=1
                 # 启动线程
-                threads = []
-                for _ in range(thread_num):
-                    t = threading.Thread(target=self.worker_process, args=(
-                        f"sub{ptag}",
-                        task_queue,
-                        result_queue,
-                        model_path,
-                        face_restore_model,
-                        face_restore_visibility,
-                        codeformer_weight,
-                        facedetection,
-                        faceSize,
-                        device
-                    ))
-                    t.start()
-                    threads.append(t)
-                    ptag=ptag+1
+                # for _ in range(thread_num):
+                #     t = threading.Thread(target=self.worker_process, args=(
+                #         f"sub{ptag}",
+                #         task_queue,
+                #         result_queue,
+                #         model_path,
+                #         face_restore_model,
+                #         face_restore_visibility,
+                #         codeformer_weight,
+                #         facedetection,
+                #         faceSize,
+                #         device,0
+                #     ))
+                #     t.start()
+                #     threads.append(t)
+                #     ptag=ptag+1
 
 
                 # 主线程也参与处理
@@ -126,7 +127,9 @@ class FaceRestoreWorker:
                         codeformer_weight,
                         facedetection,
                         faceSize,
-                        device
+                        device,
+                        thread_num=thread_num,
+                        timeout=180
                 )
 
                 # # 主线程等待所有任务完成
@@ -153,6 +156,10 @@ class FaceRestoreWorker:
                 restored_img_tensor = torch.from_numpy(restored_img_np)
 
                 result = restored_img_tensor
+        except Exception as e:
+            # # 等待所有线程结束
+            self.stop_event=True
+            raise e
         finally:
             D_FACE_RESTORE_MODEL=None
             logger.status(f"restore_face success cost:{time.time()-t0}")
@@ -169,7 +176,9 @@ class FaceRestoreWorker:
             codeformer_weight,
             facedetection,
             faceSize,
-            device
+            device,
+            thread_num=0,
+            timeout=0
     ): 
         global D_FACE_RESTORE_MODEL
         device_id=os.getenv("CUDA_VISIBLE_DEVICES")
@@ -179,15 +188,22 @@ class FaceRestoreWorker:
         s_cnt=0
         f_cnt=0
         t0=time.time()
+        submit_t=0
         while True:
+            t1=time.time()
+            if self.stop_event:
+                logger.status(f"{ptag} stop_event success:{s_cnt} fail:{f_cnt} cost:{t1-t0}")
+                del face_helper
+                return 
             ql=task_queue.qsize()
-            # logger.status(f"{ptag} whiledo success:{s_cnt} fail:{f_cnt} qsize:{ql}")
             if ql<=0:
-                t1=time.time()
                 logger.status(f"{ptag} finish success:{s_cnt} fail:{f_cnt} cost:{t1-t0}")
                 del face_helper
                 return
             index, cur_image_np = task_queue.get()
+            cost=time.time()-t0
+            if timeout>0 and cost-timeout>0:
+                raise ValueError(f"timeout:{timeout} cost:{cost}")
             try:
                 if index is not None or cur_image_np is None:
                     logger.status(f"{ptag} restore {index} remine:{ql}")
@@ -204,6 +220,22 @@ class FaceRestoreWorker:
                     )
                     s_cnt=s_cnt+1
                     result_queue.put((index, result))
+                    if thread_num is not None and thread_num>=1 and submit_t<thread_num:
+                        t = threading.Thread(target=self.worker_process, args=(
+                            f"sub{submit_t}",
+                            task_queue,
+                            result_queue,
+                            model_path,
+                            face_restore_model,
+                            face_restore_visibility,
+                            codeformer_weight,
+                            facedetection,
+                            faceSize,
+                            device,0,0
+                        ))
+                        t.start()       
+                        submit_t=submit_t+1
+
                 else:
                     s_cnt=s_cnt+1
                     result_queue.put((index, cur_image_np))
