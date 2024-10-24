@@ -1,4 +1,5 @@
 import sys
+import os
 from multiprocessing import Process, Queue, cpu_count
 
 import cv2
@@ -23,12 +24,17 @@ from scripts.reactor_faceswap import (
     providers
 )
 from scripts.reactor_logger import logger
+import threading
+import traceback
+import time
 
-
+model_init_lock = threading.Lock()
+D_FACE_RESTORE_MODEL=None
 class FaceRestoreWorker:
     def __init__(self):
         self.face_helper = None
         self.FACE_SIZE = 512
+
 
     def restore_face(
             self,
@@ -37,74 +43,124 @@ class FaceRestoreWorker:
             face_restore_visibility,
             codeformer_weight,
             facedetection,
+            thread_num=4
     ):
         result = input_image
+        t0=time.time()
+        try:
+            if face_restore_model != "none" and not model_management.processing_interrupted():
+                faceSize = self._get_face_size(face_restore_model)
 
-        if face_restore_model != "none" and not model_management.processing_interrupted():
-            faceSize = self._get_face_size(face_restore_model)
+                logger.status(f"Restoring with {face_restore_model} | Face Size is set to {faceSize}")
 
-            logger.status(f"Restoring with {face_restore_model} | Face Size is set to {faceSize}")
+                model_path = folder_paths.get_full_path("facerestore_models", face_restore_model)
+                device = model_management.get_torch_device()
+                logger.status(f"mode get_device:{device}")
+                device_id=os.getenv("CUDA_VISIBLE_DEVICES")
+                # device=f"cuda:{device_id}"
+                logger.status(f"restore_face actural device {device_id}")
+                image_np = 255. * input_image.numpy()
+                total_images = image_np.shape[0]
+                out_images = []
 
-            model_path = folder_paths.get_full_path("facerestore_models", face_restore_model)
-            device = model_management.get_torch_device()
+                # 初始化模型
+                global D_FACE_RESTORE_MODEL
+                if "codeformer" in face_restore_model.lower():
+                    codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
+                        dim_embd=512,
+                        codebook_size=1024,
+                        n_head=8,
+                        n_layers=9,
+                        connect_list=["32", "64", "128", "256"],
+                    ).to(device)
+                    checkpoint = torch.load(model_path)["params_ema"]
+                    codeformer_net.load_state_dict(checkpoint)
+                    facerestore_model = codeformer_net.eval()
+                    D_FACE_RESTORE_MODEL=facerestore_model
+                elif ".onnx" in face_restore_model:
+                    ort_session = set_ort_session(model_path, providers=providers)
+                    D_FACE_RESTORE_MODEL = ort_session
+                else:
+                    sd = comfy.utils.load_torch_file(model_path, safe_load=True)
+                    facerestore_model = model_loading.load_state_dict(sd).eval()
+                    facerestore_model.to(device)
+                    D_FACE_RESTORE_MODEL=facerestore_model
 
-            image_np = 255. * input_image.numpy()
-            total_images = image_np.shape[0]
-            out_images = []
+                # 创建任务队列和结果队列
+                task_queue = Queue()
+                result_queue = Queue()
 
-            # 创建任务队列和结果队列
-            task_queue = Queue()
-            result_queue = Queue()
+                            # 将图像放入队列
+                for i in range(total_images):
+                    task_queue.put((i, image_np[i, :, :, ::-1]))
 
-            # 最多允许同时运行的子进程数量
-            max_processes = min(cpu_count(), 10)
+                ptag=1
+                # 启动线程
+                threads = []
+                for _ in range(thread_num):
+                    t = threading.Thread(target=self.worker_process, args=(
+                        f"sub{ptag}",
+                        task_queue,
+                        result_queue,
+                        model_path,
+                        face_restore_model,
+                        face_restore_visibility,
+                        codeformer_weight,
+                        facedetection,
+                        faceSize,
+                        device
+                    ))
+                    t.start()
+                    threads.append(t)
+                    ptag=ptag+1
 
-            # 启动子进程
-            processes = []
-            for _ in range(max_processes):
-                p = Process(target=self.worker_process, args=(
-                    task_queue,
-                    result_queue,
-                    model_path,
-                    face_restore_model,
-                    face_restore_visibility,
-                    codeformer_weight,
-                    facedetection,
-                    faceSize,
-                    device
-                ))
-                p.start()
-                processes.append(p)
 
-            # 将图像放入队列
-            for i in range(total_images):
-                task_queue.put((i, image_np[i, :, :, ::-1]))
+                # 主线程也参与处理
+                self.worker_process(
+                        "main",
+                        task_queue,
+                        result_queue,
+                        model_path,
+                        face_restore_model,
+                        face_restore_visibility,
+                        codeformer_weight,
+                        facedetection,
+                        faceSize,
+                        device
+                )
 
-            # 发送结束信号
-            for _ in range(max_processes):
-                task_queue.put(None)
+                # # 主线程等待所有任务完成
+                # while not task_queue.qsize()<=0:
+                #     pass
 
-            # 收集结果
-            results = []
-            processed_count = 0
-            while processed_count < total_images:
-                result_index, result_image = result_queue.get()
-                results.append((result_index, result_image))
-                processed_count += 1
+                # # 等待所有线程结束
+                # for t in threads:
+                #     t.join()
 
-            # 按照原始顺序排序结果
-            results.sort(key=lambda x: x[0])
-            results = [r[1] for r in results]
+                # 收集结果
+                results = []
+                processed_count = 0
+                while processed_count < total_images:
+                    result_index, result_image = result_queue.get()
+                    results.append((result_index, result_image))
+                    processed_count += 1
 
-            restored_img_np = np.array(results).astype(np.float32) / 255.0
-            restored_img_tensor = torch.from_numpy(restored_img_np)
+                # 按照原始顺序排序结果
+                results.sort(key=lambda x: x[0])
+                results = [r[1] for r in results]
 
-            result = restored_img_tensor
+                restored_img_np = np.array(results).astype(np.float32) / 255.0
+                restored_img_tensor = torch.from_numpy(restored_img_np)
 
+                result = restored_img_tensor
+        finally:
+            D_FACE_RESTORE_MODEL=None
+            logger.status(f"restore_face success cost:{time.time()-t0}")
         return result
 
     def worker_process(
             self,
+            ptag,
             task_queue,
             result_queue,
             model_path,
@@ -114,47 +170,51 @@ class FaceRestoreWorker:
             facedetection,
             faceSize,
             device
-    ):
-        facerestore_model = None
-        ort_session = None
-        ort_session_inputs = None
-        if "codeformer" in face_restore_model.lower():
-            codeformer_net = ARCH_REGISTRY.get("CodeFormer")(
-                dim_embd=512,
-                codebook_size=1024,
-                n_head=8,
-                n_layers=9,
-                connect_list=["32", "64", "128", "256"],
-            ).to(device)
-            checkpoint = torch.load(model_path)["params_ema"]
-            codeformer_net.load_state_dict(checkpoint)
-            facerestore_model = codeformer_net.eval()
-        elif ".onnx" in face_restore_model:
-            ort_session = set_ort_session(model_path, providers=providers)
-            ort_session_inputs = {}
-            facerestore_model = ort_session
-        else:
-            sd = comfy.utils.load_torch_file(model_path, safe_load=True)
-            facerestore_model = model_loading.load_state_dict(sd).eval()
-            facerestore_model.to(device)
-
+    ): 
+        global D_FACE_RESTORE_MODEL
+        device_id=os.getenv("CUDA_VISIBLE_DEVICES")
+        logger.status(f"{ptag} worker_process enter qsize:{task_queue.qsize()}, device_id {device_id}, model_path:{model_path}, face_restore_model:{face_restore_model}, device:{device}")
+        facerestore_model = D_FACE_RESTORE_MODEL
+        face_helper = FaceRestoreHelper(1, face_size=faceSize, crop_ratio=(1, 1), det_model=facedetection,save_ext='png', use_parse=True, device=device)
+        s_cnt=0
+        f_cnt=0
+        t0=time.time()
         while True:
+            ql=task_queue.qsize()
+            # logger.status(f"{ptag} whiledo success:{s_cnt} fail:{f_cnt} qsize:{ql}")
+            if ql<=0:
+                t1=time.time()
+                logger.status(f"{ptag} finish success:{s_cnt} fail:{f_cnt} cost:{t1-t0}")
+                del face_helper
+                return
             index, cur_image_np = task_queue.get()
-            if cur_image_np is None:
-                break
-            result = self._process_single_image(
-                cur_image_np,
-                face_restore_model,
-                facerestore_model,
-                ort_session,
-                ort_session_inputs,
-                face_restore_visibility,
-                codeformer_weight,
-                facedetection,
-                faceSize,
-                device
-            )
-            result_queue.put((index, result))
+            try:
+                if index is not None or cur_image_np is None:
+                    logger.status(f"{ptag} restore {index} remine:{ql}")
+                    result = self._process_single_image(
+                        face_helper,
+                        cur_image_np,
+                        face_restore_model,
+                        facerestore_model,
+                        face_restore_visibility,
+                        codeformer_weight,
+                        facedetection,
+                        faceSize,
+                        device
+                    )
+                    s_cnt=s_cnt+1
+                    result_queue.put((index, result))
+                else:
+                    s_cnt=s_cnt+1
+                    result_queue.put((index, cur_image_np))
+                    logger.status(f"{ptag} index or cur_image_np is null {index} {cur_image_np}")
+            except Exception as error:
+                logger.status(f"_process_single_image error {ptag}, {index}, {error}")
+                err_msg=traceback.format_exc()
+                logger.error(f"_process_single_image ",exc_info=True)
+                result_queue.put((index, cur_image_np))
+                f_cnt=f_cnt+1
+
 
     def _get_face_size(self, face_restore_model):
         if "1024" in face_restore_model.lower():
@@ -164,13 +224,37 @@ class FaceRestoreWorker:
         else:
             return 512
 
-    def _process_single_image(
-            self,
+    def _pre_warmup(
+            self,task_queue,result_queue,
+            face_helper,
+            face_restore_model,
+            facerestore_model,
+            face_restore_visibility,
+            codeformer_weight,
+            facedetection,
+            faceSize,
+            device
+    ):
+        index, cur_image_np = task_queue.get()
+        result = self._process_single_image(
+            face_helper,
             cur_image_np,
             face_restore_model,
             facerestore_model,
-            ort_session,
-            ort_session_inputs,
+            face_restore_visibility,
+            codeformer_weight,
+            facedetection,
+            faceSize,
+            device
+        )
+        result_queue.put((index, result))
+
+    def _process_single_image(
+            self,
+            face_helper,
+            cur_image_np,
+            face_restore_model,
+            facerestore_model,
             face_restore_visibility,
             codeformer_weight,
             facedetection,
@@ -178,9 +262,6 @@ class FaceRestoreWorker:
             device
     ):
         original_resolution = cur_image_np.shape[0:2]
-
-        face_helper = FaceRestoreHelper(1, face_size=faceSize, crop_ratio=(1, 1), det_model=facedetection,
-                                        save_ext='png', use_parse=True, device=device)
 
         face_helper.clean_all()
         face_helper.read_image(cur_image_np)
@@ -196,7 +277,9 @@ class FaceRestoreWorker:
 
             try:
                 with torch.no_grad():
-                    if ".onnx" in facerestore_model:
+                    if ".onnx" in face_restore_model:
+                        ort_session_inputs={}
+                        ort_session=facerestore_model
                         for ort_session_input in ort_session.get_inputs():
                             if ort_session_input.name == "input":
                                 cropped_face_prep = prepare_cropped_face(cropped_face)
