@@ -335,7 +335,7 @@ class reactor:
 
         return result
     
-    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None,parallels_num=1,enable_restore_parallels=False,thread_num=4):
+    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None,parallels_num=1,enable_restore_parallels=False,thread_num=0):
 
         if face_boost is not None:
             self.face_boost_enabled = face_boost["enabled"]
